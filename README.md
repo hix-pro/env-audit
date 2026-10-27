@@ -48,7 +48,7 @@ envaudit scan [PATH] [--json | --markdown] [--fail-on any|missing|secret]
 ```console
 $ cd examples/fixture-project
 $ envaudit scan .
-EnvAudit · 0.1.0
+EnvAudit · 0.3.0
 Scanned 7 files under .
 
 critical (1)
@@ -145,7 +145,7 @@ Only the source extensions listed above are parsed as code. A shell script witho
   "schema_version": 1,
   "tool": {
     "name": "envaudit",
-    "version": "0.1.0"
+    "version": "0.3.0"
   },
   "root": ".",
   "files_scanned": 7,
