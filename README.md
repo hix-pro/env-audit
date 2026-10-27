@@ -187,6 +187,19 @@ Schema notes:
 
 `--markdown` emits a deterministic report that starts with `# EnvAudit report`, includes a severity summary table, and groups findings under `## Critical`, `## Error`, `## Warning`, and `## Info` headings. Each finding lists its kind, variable, locations, explanation, and suggested fix. It is suitable for pull request comments without post-processing.
 
+## GitHub Action
+
+The repository ships a composite action that installs EnvAudit and runs it against your workspace — no Rust setup in your workflow:
+
+```yaml
+- uses: hix-pro/env-audit@v0.1.0
+  with:
+    path: .
+    fail-on: any
+```
+
+Inputs: `path` (default `.`), `fail-on` (`any`, `missing`, `secret`, or empty for report-only), and `args` for extra CLI flags such as `--markdown` or `--json`. The first run compiles the tool from source, which takes roughly a minute; pin a tag so upgrades are explicit. The repository's own pipeline runs the action against `src` in its Dogfood workflow.
+
 ## CI
 
 ```yaml

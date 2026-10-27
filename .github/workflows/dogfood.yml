@@ -1,0 +1,23 @@
+name: Dogfood
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: env-audit scans its own source
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Uses the action.yml in this repository. `src` is scanned (not `examples/`,
+      # which deliberately contains fixture findings), and only secrets gate the job.
+      - uses: ./
+        with:
+          path: src
+          fail-on: secret

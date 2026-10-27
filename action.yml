@@ -1,0 +1,47 @@
+name: EnvAudit
+description: >-
+  Audit environment variable usage, documentation, and secrets in your
+  repository. Local-first: nothing leaves the runner.
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  path:
+    description: Directory to scan, relative to the workspace.
+    required: false
+    default: '.'
+  fail-on:
+    description: >-
+      Exit 2 when matching findings exist: any, missing, or secret.
+      Leave empty for report-only mode.
+    required: false
+    default: ''
+  args:
+    description: Extra arguments passed through to `envaudit scan` (e.g. `--markdown`).
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - uses: dtolnay/rust-toolchain@stable
+
+    - name: Install EnvAudit
+      shell: bash
+      run: cargo install --locked --path "$GITHUB_ACTION_PATH"
+
+    - name: Run EnvAudit
+      shell: bash
+      env:
+        SCAN_PATH: ${{ inputs.path }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        EXTRA_ARGS: ${{ inputs.args }}
+      run: |
+        args=()
+        if [[ -n "$FAIL_ON" ]]; then
+          args+=(--fail-on "$FAIL_ON")
+        fi
+        # EXTRA_ARGS is deliberately word-split so callers can pass several flags.
+        # shellcheck disable=SC2086
+        exec envaudit scan "$SCAN_PATH" "${args[@]}" $EXTRA_ARGS
