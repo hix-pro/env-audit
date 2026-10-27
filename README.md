@@ -20,6 +20,14 @@ $ cd env-audit
 $ cargo install --path . --locked
 ```
 
+Or grab a prebuilt binary — every version ships tarballs for Linux x86_64 (gnu), macOS (Apple Silicon), and Windows x86_64, each with a SHA-256 checksum:
+
+```console
+$ curl -LO https://github.com/hix-pro/env-audit/releases/latest/download/envaudit-x86_64-unknown-linux-gnu.tar.gz
+$ tar xzf envaudit-x86_64-unknown-linux-gnu.tar.gz
+$ install envaudit-x86_64-unknown-linux-gnu/envaudit /usr/local/bin/
+```
+
 For a local release build without installing:
 
 ```console
