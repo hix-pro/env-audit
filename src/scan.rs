@@ -1,4 +1,5 @@
-use std::fs;
+use std::fs::{self, File};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -262,7 +263,16 @@ fn read_text(path: &Path, size: u64) -> Result<Option<String>> {
     if size > MAX_FILE_SIZE {
         return Ok(None);
     }
-    let bytes = fs::read(path).with_context(|| format!("cannot read `{}`", path.display()))?;
+    let file = File::open(path).with_context(|| format!("cannot read `{}`", path.display()))?;
+    let mut bytes = Vec::new();
+    // The size cap is enforced on the bytes actually read: `size` is a stale
+    // stat snapshot, and the file may have grown since it was taken.
+    file.take(MAX_FILE_SIZE + 1)
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("cannot read `{}`", path.display()))?;
+    if bytes.len() > MAX_FILE_SIZE as usize {
+        return Ok(None);
+    }
     if bytes.contains(&0) {
         return Ok(None);
     }
@@ -353,6 +363,22 @@ mod tests {
         let collected = collect(temp.path()).unwrap();
         assert_eq!(collected.sources.len(), 1);
         assert_eq!(collected.sources[0].relative, "ok.ts");
+    }
+
+    #[test]
+    fn read_text_enforces_the_size_cap_on_actually_read_bytes() {
+        let temp = tempfile::tempdir().unwrap();
+
+        // Exactly the cap still reads.
+        let exact = temp.path().join("exact.env");
+        fs::write(&exact, vec![b'a'; MAX_FILE_SIZE as usize]).unwrap();
+        assert!(read_text(&exact, MAX_FILE_SIZE).unwrap().is_some());
+
+        // A grown file is rejected even when the stale stat claimed it fit.
+        let grown = temp.path().join("grown.env");
+        fs::write(&grown, vec![b'a'; (MAX_FILE_SIZE + 1) as usize]).unwrap();
+        assert!(read_text(&grown, 0).unwrap().is_none());
+        assert!(read_text(&grown, MAX_FILE_SIZE + 1).unwrap().is_none());
     }
 
     #[cfg(unix)]

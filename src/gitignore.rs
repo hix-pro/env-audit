@@ -70,10 +70,16 @@ pub fn is_ignored(root: &Path, relative: &str) -> bool {
     for depth in 0..parts.len() {
         let base = parts[..depth].join("/");
         let path = root.join(&base).join(".gitignore");
-        let Ok(content) = fs::read_to_string(path) else {
-            continue;
-        };
-        rules.extend(parse_rules(&content, &base));
+        match fs::read_to_string(&path) {
+            Ok(content) => rules.extend(parse_rules(&content, &base)),
+            // A missing file simply contributes no rules.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            // Any other failure would silently flip secret severities, so it
+            // must be visible to the user without aborting the scan.
+            Err(error) => {
+                eprintln!("warning: failed to read `{}`: {error}", path.display());
+            }
+        }
     }
 
     evaluate(&rules, normalized)

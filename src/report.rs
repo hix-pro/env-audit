@@ -244,10 +244,13 @@ pub fn render_text(audit: &Audit, options: TextOptions<'_>) -> String {
 }
 
 fn push_text_finding(out: &mut String, finding: &Finding, style: &Style) {
+    // Pad the plain kind name before styling it: a `{:<12}` width specifier
+    // counts the ANSI escape bytes of an already-styled string, so in color
+    // mode the column never lines up.
     let _ = writeln!(
         out,
-        "  {:<12}  {}",
-        style.dim(finding.kind.as_str()),
+        "  {}  {}",
+        style.dim(&format!("{:<12}", finding.kind.as_str())),
         style.bold(&finding.variable)
     );
     push_text_locations(out, &finding.locations, style);
@@ -497,5 +500,34 @@ mod tests {
             },
         );
         assert!(output.contains("\u{1b}[1;31m"));
+    }
+
+    #[test]
+    fn color_mode_pads_the_kind_column_before_styling() {
+        let output = render_text(
+            &sample_audit(),
+            TextOptions {
+                color: true,
+                fail_on: None,
+                failing: false,
+            },
+        );
+        // The 7-character kind name is padded to 12 columns inside the style,
+        // not after the escape bytes were counted.
+        assert!(output.contains("\u{1b}[2mmissing     \u{1b}[0m  \u{1b}[1mREGION\u{1b}[0m"));
+    }
+
+    #[test]
+    fn plain_mode_pads_the_kind_column() {
+        let output = render_text(
+            &sample_audit(),
+            TextOptions {
+                color: false,
+                fail_on: None,
+                failing: false,
+            },
+        );
+        assert!(output.contains("  missing       REGION"));
+        assert!(output.contains("  secret        API_KEY"));
     }
 }

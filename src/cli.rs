@@ -81,7 +81,14 @@ pub fn run() -> Result<u8> {
                 error.kind(),
                 ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
             );
-            error.print().context("failed to print help")?;
+            if let Err(print_error) = error.print() {
+                if is_early_reader_exit(&print_error) {
+                    // The reader went away (`envaudit --help | head -1`);
+                    // treat it as normal termination.
+                    return Ok(0);
+                }
+                return Err(print_error).context("failed to print help");
+            }
             return Ok(if display_only { 0 } else { 1 });
         }
     };
@@ -142,6 +149,16 @@ fn write_stdout(output: &str) -> Result<()> {
     Ok(())
 }
 
+/// Whether an I/O error while printing help, version, or usage means the
+/// consumer left early (`envaudit --help | head -1`) rather than something
+/// actually going wrong.
+fn is_early_reader_exit(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::Interrupted
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -185,5 +202,18 @@ mod tests {
     fn clap_rejects_conflicting_output_flags() {
         let error = Cli::try_parse_from(["envaudit", "scan", "--json", "--markdown"]).unwrap_err();
         assert_eq!(error.kind(), ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
+    fn closed_pipe_and_interrupted_prints_are_normal_termination() {
+        assert!(is_early_reader_exit(&std::io::Error::from(
+            std::io::ErrorKind::BrokenPipe
+        )));
+        assert!(is_early_reader_exit(&std::io::Error::from(
+            std::io::ErrorKind::Interrupted
+        )));
+        assert!(!is_early_reader_exit(&std::io::Error::from(
+            std::io::ErrorKind::PermissionDenied
+        )));
     }
 }

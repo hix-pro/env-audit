@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 
 use tempfile::TempDir;
 
@@ -54,6 +54,28 @@ fn help_and_version_exit_zero() {
     let version = run(temp.path(), &["--version"]);
     assert_eq!(version.status.code(), Some(0));
     assert!(stdout(&version).contains(env!("CARGO_PKG_VERSION")));
+}
+
+#[cfg(unix)]
+#[test]
+fn help_through_a_closed_pipe_exits_zero() {
+    let mut child = Command::new("sh")
+        .arg("-c")
+        // The shell waits for stdin EOF before exec'ing, so the read end of
+        // the help pipe is guaranteed to be closed by the time the binary
+        // writes its help text.
+        .arg("read -r _ || true; exec \"$0\" --help")
+        .arg(env!("CARGO_BIN_EXE_envaudit"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    // With no reader left, the help write fails with `Broken pipe`; that is
+    // normal termination, not a failure.
+    drop(child.stdout.take());
+    drop(child.stdin.take());
+    let status = child.wait().unwrap();
+    assert_eq!(status.code(), Some(0));
 }
 
 #[test]
@@ -197,6 +219,62 @@ fn no_color_environment_is_respected() {
         .unwrap();
     assert_eq!(output.status.code(), Some(0));
     assert!(!stdout(&output).contains("\u{1b}["));
+}
+
+#[test]
+fn compose_sequences_at_parent_indent_are_parsed_and_env_files_followed() {
+    let temp = repo();
+    write(
+        &temp.path().join("compose.yaml"),
+        concat!(
+            "services:\n",
+            "  api:\n",
+            "    environment:\n",
+            "    - ALPHA=1\n",
+            "    - BRAVO=2\n",
+            "    env_file:\n",
+            "    - prod.env\n",
+        ),
+    );
+    // `prod.env` is not a dotenv file by name, so it is only ever read by
+    // following the Compose `env_file` reference.
+    write(
+        &temp.path().join("prod.env"),
+        "PROD_SECRET_TOKEN=9f2c7a51e8b34d06\n",
+    );
+    write(
+        &temp.path().join("src/app.ts"),
+        "process.env.ALPHA;\nprocess.env.BRAVO;\n",
+    );
+
+    let output = run(temp.path(), &["scan", ".", "--json"]);
+    assert_eq!(output.status.code(), Some(0));
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    // The same-indent sequences are declarations, so nothing is falsely
+    // missing, and the referenced env file was read (its secret is reported).
+    assert_eq!(value["summary"]["kinds"]["missing"], 0);
+    assert_eq!(value["summary"]["kinds"]["secret"], 1);
+    assert_eq!(value["findings"][0]["variable"], "PROD_SECRET_TOKEN");
+}
+
+#[test]
+fn unreadable_gitignore_warns_but_does_not_fail_the_scan() {
+    let temp = repo();
+    write(
+        &temp.path().join("config/.env"),
+        "STRIPE_SECRET_KEY=64f3b9d1c7a24e6f8b0d5a2c9e1f7b3d\n",
+    );
+    // A `.gitignore` that exists but cannot be read (here: a directory with
+    // that name) must produce a warning instead of being silently skipped.
+    fs::create_dir_all(temp.path().join("config/.gitignore")).unwrap();
+
+    let output = run(temp.path(), &["scan", "."]);
+    assert_eq!(output.status.code(), Some(0));
+    let text = stderr(&output);
+    assert!(text.contains("warning: failed to read"));
+    assert!(text.contains("config/.gitignore"));
+    // The ignore check still ran (no rules), so the secret stays critical.
+    assert!(stdout(&output).contains("critical (1)"));
 }
 
 #[test]

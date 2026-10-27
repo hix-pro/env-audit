@@ -69,21 +69,21 @@ fn parse(content: &str, mode: Mode) -> Result<ParsedYaml, YamlError> {
                 let keys = parse_environment(&lines, index, &value, line.indent)?;
                 parsed.env_keys.extend(keys);
                 if value.is_empty() {
-                    skip_until = block_end(&lines, index, line.indent);
+                    skip_until = block_end(&lines, index, line.indent, true);
                 }
             }
             (Mode::Compose, "env_file") => {
                 let paths = parse_env_file(&lines, index, &value, line.indent)?;
                 parsed.env_file_paths.extend(paths);
                 if value.is_empty() {
-                    skip_until = block_end(&lines, index, line.indent);
+                    skip_until = block_end(&lines, index, line.indent, true);
                 }
             }
             (Mode::Workflow, "env") => {
                 let keys = parse_workflow_env(&lines, index, &value, line.indent)?;
                 parsed.env_keys.extend(keys);
                 if value.is_empty() {
-                    skip_until = block_end(&lines, index, line.indent);
+                    skip_until = block_end(&lines, index, line.indent, false);
                 }
             }
             _ => {}
@@ -153,7 +153,7 @@ fn parse_environment(
         return Ok(Vec::new());
     }
 
-    let block = child_block(lines, index, base_indent);
+    let block = child_block(lines, index, base_indent, true);
     let Some(first) = block.first() else {
         return Ok(Vec::new());
     };
@@ -195,7 +195,7 @@ fn parse_workflow_env(
         };
     }
 
-    let block = child_block(lines, index, base_indent);
+    let block = child_block(lines, index, base_indent, false);
     let Some(first) = block.first() else {
         return Ok(Vec::new());
     };
@@ -294,7 +294,7 @@ fn parse_env_file(
         return Ok(vec![unquote(value)]);
     }
 
-    let block = child_block(lines, index, base_indent);
+    let block = child_block(lines, index, base_indent, true);
     let Some(first) = block.first() else {
         return Ok(Vec::new());
     };
@@ -378,16 +378,41 @@ fn env_file_item(item: &str, line: usize) -> Result<String, YamlError> {
     Ok(unquote(item))
 }
 
-fn child_block(lines: &[YamlLine], index: usize, base_indent: usize) -> &[YamlLine] {
+/// Collects the lines belonging to the child block of the mapping key at
+/// `index`. Deeper-indented lines always belong to the block. With
+/// `sequences_at_base_indent`, so do `- ` sequence items at exactly the
+/// parent key's indent — valid YAML that Compose uses heavily
+/// (`environment:\n- A=1`). Workflow `env:` deliberately ignores sequences,
+/// so its callers pass `false`.
+fn child_block(
+    lines: &[YamlLine],
+    index: usize,
+    base_indent: usize,
+    sequences_at_base_indent: bool,
+) -> &[YamlLine] {
     let start = index + 1;
-    let end = block_end(lines, index, base_indent);
+    let end = block_end(lines, index, base_indent, sequences_at_base_indent);
     &lines[start..end]
 }
 
-fn block_end(lines: &[YamlLine], index: usize, base_indent: usize) -> usize {
+fn block_end(
+    lines: &[YamlLine],
+    index: usize,
+    base_indent: usize,
+    sequences_at_base_indent: bool,
+) -> usize {
     let mut end = index + 1;
-    while end < lines.len() && lines[end].indent > base_indent {
-        end += 1;
+    while end < lines.len() {
+        let line = &lines[end];
+        if line.indent > base_indent
+            || (sequences_at_base_indent
+                && line.indent == base_indent
+                && strip_list_marker(&line.text).is_some())
+        {
+            end += 1;
+            continue;
+        }
+        break;
     }
     end
 }
@@ -633,6 +658,69 @@ mod tests {
         );
         let parsed = parse_compose(yaml).unwrap();
         assert_eq!(keys(&parsed), vec!["NODE_ENV", "FEATURE_CHECKOUT", "TOKEN"]);
+    }
+
+    #[test]
+    fn parses_compose_environment_sequence_at_parent_indent() {
+        let yaml = concat!(
+            "services:\n",
+            "  api:\n",
+            "    environment:\n",
+            "    - ALPHA=1\n",
+            "    - BRAVO=2\n",
+            "    - FEATURE_CHECKOUT\n",
+        );
+        let parsed = parse_compose(yaml).unwrap();
+        assert_eq!(keys(&parsed), vec!["ALPHA", "BRAVO", "FEATURE_CHECKOUT"]);
+    }
+
+    #[test]
+    fn parses_compose_env_file_sequence_at_parent_indent() {
+        let yaml = concat!(
+            "services:\n",
+            "  api:\n",
+            "    env_file:\n",
+            "    - .env\n",
+            "    - path: prod.env\n",
+            "      required: false\n",
+            "    environment:\n",
+            "    - NAME=value\n",
+        );
+        let parsed = parse_compose(yaml).unwrap();
+        assert_eq!(
+            parsed.env_file_paths,
+            vec![".env".to_owned(), "prod.env".to_owned()]
+        );
+        assert_eq!(keys(&parsed), vec!["NAME"]);
+    }
+
+    #[test]
+    fn same_indent_mapping_key_terminates_compose_sequence() {
+        let yaml = concat!(
+            "services:\n",
+            "  api:\n",
+            "    environment:\n",
+            "    - ALPHA=1\n",
+            "    image: nginx\n",
+            "  worker:\n",
+            "    environment:\n",
+            "    - GAMMA=3\n",
+        );
+        let parsed = parse_compose(yaml).unwrap();
+        assert_eq!(keys(&parsed), vec!["ALPHA", "GAMMA"]);
+    }
+
+    #[test]
+    fn ignores_workflow_env_sequence_at_parent_indent() {
+        let yaml = concat!(
+            "jobs:\n",
+            "  build:\n",
+            "    env:\n",
+            "    - NOT_A_MAPPING\n",
+            "    run: npm test\n",
+        );
+        let parsed = parse_workflow(yaml).unwrap();
+        assert!(parsed.env_keys.is_empty());
     }
 
     #[test]
