@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "tool": {
+    "name": "envaudit",
+    "version": "0.1.0"
+  },
+  "root": ".",
+  "files_scanned": 7,
+  "summary": {
+    "total": 5,
+    "critical": 1,
+    "error": 1,
+    "warning": 2,
+    "info": 1,
+    "kinds": {
+      "missing": 1,
+      "unused": 1,
+      "undocumented": 1,
+      "secret": 1,
+      "duplicate": 1
+    }
+  },
+  "findings": [
+    {
+      "kind": "secret",
+      "severity": "critical",
+      "variable": "STRIPE_SECRET_KEY",
+      "summary": "A likely secret value is stored in .env, which is not ignored by .gitignore.",
+      "fix": "Remove the value from .env, rotate the credential, and add .env to .gitignore.",
+      "locations": [
+        {
+          "path": ".env",
+          "line": 3,
+          "role": "secret"
+        }
+      ],
+      "gitignored": false
+    },
+    {
+      "kind": "missing",
+      "severity": "error",
+      "variable": "DEPLOY_REGION",
+      "summary": "Referenced in scanned code but not declared in any env file, Compose environment, or workflow env map.",
+      "fix": "Add DEPLOY_REGION to .env.example and the deployment environment, or remove the reference.",
+      "locations": [
+        {
+          "path": "src/server.ts",
+          "line": 8,
+          "role": "usage"
+        }
+      ]
+    },
+    {
+      "kind": "undocumented",
+      "severity": "warning",
+      "variable": "LEGACY_SMTP_HOST",
+      "summary": "Set in runtime configuration but absent from the example env file.",
+      "fix": "Add LEGACY_SMTP_HOST to .env.example so new contributors can discover it.",
+      "locations": [
+        {
+          "path": ".env",
+          "line": 4,
+          "role": "declaration"
+        }
+      ]
+    },
+    {
+      "kind": "unused",
+      "severity": "warning",
+      "variable": "UNUSED_LEGACY_FLAG",
+      "summary": "Declared in an example env file but never referenced in scanned code.",
+      "fix": "Remove UNUSED_LEGACY_FLAG from the example file or add the code that reads it.",
+      "locations": [
+        {
+          "path": ".env.example",
+          "line": 8,
+          "role": "declaration"
+        }
+      ]
+    },
+    {
+      "kind": "duplicate",
+      "severity": "info",
+      "variable": "DATABASE_URL",
+      "summary": "Declared with different values across real env files.",
+      "fix": "Keep one source of truth, or document the override intentionally.",
+      "locations": [
+        {
+          "path": ".env",
+          "line": 1,
+          "role": "declaration"
+        },
+        {
+          "path": ".env.local",
+          "line": 1,
+          "role": "declaration"
+        }
+      ]
+    }
+  ]
+}

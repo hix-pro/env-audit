@@ -1,0 +1,35 @@
+EnvAudit · 0.1.0
+Scanned 7 files under .
+
+critical (1)
+  secret        STRIPE_SECRET_KEY
+    found in .env:3
+    A likely secret value is stored in .env, which is not ignored by .gitignore.
+    fix: Remove the value from .env, rotate the credential, and add .env to .gitignore.
+
+error (1)
+  missing       DEPLOY_REGION
+    used at src/server.ts:8
+    Referenced in scanned code but not declared in any env file, Compose environment, or workflow env map.
+    fix: Add DEPLOY_REGION to .env.example and the deployment environment, or remove the reference.
+
+warning (2)
+  undocumented  LEGACY_SMTP_HOST
+    declared at .env:4
+    Set in runtime configuration but absent from the example env file.
+    fix: Add LEGACY_SMTP_HOST to .env.example so new contributors can discover it.
+  unused        UNUSED_LEGACY_FLAG
+    declared at .env.example:8
+    Declared in an example env file but never referenced in scanned code.
+    fix: Remove UNUSED_LEGACY_FLAG from the example file or add the code that reads it.
+
+info (1)
+  duplicate     DATABASE_URL
+    declared at:
+      .env:1
+      .env.local:1
+    Declared with different values across real env files.
+    fix: Keep one source of truth, or document the override intentionally.
+
+Summary: 1 critical, 1 error, 2 warnings, 1 info (5 findings)
+Result: report only (use --fail-on any|missing|secret to gate CI)

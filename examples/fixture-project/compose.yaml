@@ -1,0 +1,18 @@
+services:
+  api:
+    build: .
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL:-redis://localhost:6379}
+      NODE_ENV: production
+      FEATURE_CHECKOUT: ${FEATURE_CHECKOUT:-false}
+    ports:
+      - "3000:3000"
+
+  worker:
+    image: ghcr.io/hix-pro/env-audit-example-worker:latest
+    environment:
+      - REDIS_URL=${REDIS_URL}
+      - FEATURE_CHECKOUT
