@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-27
+
 ### Added
 - Composite GitHub Action (`action.yml`) so workflows can run EnvAudit without installing Rust themselves; the repository dogfoods it in a dedicated Dogfood workflow.
 - Initial public release.
