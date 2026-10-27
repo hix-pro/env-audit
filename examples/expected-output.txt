@@ -1,4 +1,4 @@
-EnvAudit · 0.3.0
+EnvAudit · 0.3.1
 Scanned 7 files under .
 
 critical (1)

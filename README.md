@@ -200,7 +200,7 @@ Schema notes:
 The repository ships a composite action that installs EnvAudit and runs it against your workspace — no Rust setup in your workflow:
 
 ```yaml
-- uses: hix-pro/env-audit@v0.3.0
+- uses: hix-pro/env-audit@v0.3.1
   with:
     path: .
     fail-on: any
