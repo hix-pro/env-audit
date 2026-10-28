@@ -188,6 +188,30 @@ fn markdown_output_is_grouped_and_stable() {
 }
 
 #[test]
+fn sarif_output_has_the_documented_shape() {
+    let temp = missing_repo();
+    let output = run(temp.path(), &["scan", ".", "--sarif"]);
+    assert_eq!(output.status.code(), Some(0));
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["version"], "2.1.0");
+    assert_eq!(value["runs"][0]["tool"]["driver"]["name"], "EnvAudit");
+    assert_eq!(value["runs"][0]["results"][0]["ruleId"], "envaudit/missing");
+    assert_eq!(
+        value["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"],
+        "src/app.ts"
+    );
+}
+
+#[test]
+fn sarif_conflicts_with_other_output_formats() {
+    let temp = missing_repo();
+    let output = run(temp.path(), &["scan", ".", "--sarif", "--json"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stderr(&output).contains("cannot be used with"));
+}
+
+#[test]
 fn parse_errors_exit_one_with_a_helpful_message() {
     let temp = repo();
     write(&temp.path().join(".env"), "BROKEN LINE\n");

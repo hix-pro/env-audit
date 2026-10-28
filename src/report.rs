@@ -76,6 +76,222 @@ fn count_severity(audit: &Audit, severity: Severity) -> usize {
         .count()
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct SarifLog {
+    #[serde(rename = "$schema")]
+    schema: &'static str,
+    version: &'static str,
+    runs: Vec<SarifRun>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SarifRun {
+    tool: SarifTool,
+    results: Vec<SarifResult>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SarifTool {
+    driver: SarifDriver,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SarifDriver {
+    name: &'static str,
+    information_uri: &'static str,
+    version: &'static str,
+    rules: Vec<SarifRule>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SarifRule {
+    id: String,
+    name: &'static str,
+    short_description: SarifText,
+    help_uri: &'static str,
+    default_configuration: SarifLevel,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SarifText {
+    text: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SarifLevel {
+    level: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SarifResult {
+    rule_id: String,
+    rule_index: usize,
+    level: &'static str,
+    message: SarifText,
+    locations: Vec<SarifLocation>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SarifLocation {
+    physical_location: SarifPhysicalLocation,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SarifPhysicalLocation {
+    artifact_location: SarifArtifactLocation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    region: Option<SarifRegion>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SarifArtifactLocation {
+    uri: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SarifRegion {
+    start_line: usize,
+}
+
+const SARIF_SCHEMA: &str = "https://json.schemastore.org/sarif-2.1.0.json";
+const SARIF_HELP_URI: &str = "https://github.com/hix-pro/env-audit#what-is-detected";
+
+const SARIF_RULES: [(FindingKind, &str, &str, &str); 5] = [
+    (
+        FindingKind::Missing,
+        "MissingEnvironmentVariable",
+        "An environment variable is used but never declared.",
+        "error",
+    ),
+    (
+        FindingKind::Unused,
+        "UnusedEnvironmentVariable",
+        "An environment variable is declared but never used.",
+        "warning",
+    ),
+    (
+        FindingKind::Undocumented,
+        "UndocumentedEnvironmentVariable",
+        "An environment variable is used but missing from the example file.",
+        "warning",
+    ),
+    (
+        FindingKind::Secret,
+        "CommittedSecret",
+        "A likely secret value is stored in a committed environment file.",
+        "error",
+    ),
+    (
+        FindingKind::Duplicate,
+        "DuplicateEnvironmentVariable",
+        "An environment variable is declared in more than one file.",
+        "note",
+    ),
+];
+
+fn sarif_rule_index(kind: FindingKind) -> usize {
+    SARIF_RULES
+        .iter()
+        .position(|(rule_kind, ..)| *rule_kind == kind)
+        .unwrap_or(0)
+}
+
+fn sarif_level(severity: Severity) -> &'static str {
+    match severity {
+        Severity::Critical | Severity::Error => "error",
+        Severity::Warning => "warning",
+        Severity::Info => "note",
+    }
+}
+
+/// SARIF artifact URIs must be relative to the repository root, use forward
+/// slashes, and include the scanned subdirectory when the scan did not start
+/// at the repository root.
+fn sarif_uri(root: &str, path: &str) -> String {
+    let path = path.replace('\\', "/");
+    let path = path.strip_prefix("./").unwrap_or(&path);
+    let root = root.replace('\\', "/");
+    let root = root.trim_end_matches('/');
+    let root = root.strip_prefix("./").unwrap_or(root);
+    if root.is_empty() || root == "." || path.starts_with('/') || root.starts_with('/') {
+        path.to_owned()
+    } else {
+        format!("{root}/{path}")
+    }
+}
+
+/// SARIF 2.1.0 output for GitHub code scanning and other SARIF consumers.
+pub fn render_sarif(audit: &Audit) -> Result<String> {
+    let rules = SARIF_RULES
+        .iter()
+        .map(|(kind, name, description, level)| SarifRule {
+            id: format!("envaudit/{}", kind.as_str()),
+            name,
+            short_description: SarifText {
+                text: (*description).to_owned(),
+            },
+            help_uri: SARIF_HELP_URI,
+            default_configuration: SarifLevel { level },
+        })
+        .collect();
+
+    let results = audit
+        .findings
+        .iter()
+        .map(|finding| SarifResult {
+            rule_id: format!("envaudit/{}", finding.kind.as_str()),
+            rule_index: sarif_rule_index(finding.kind),
+            level: sarif_level(finding.severity),
+            message: SarifText {
+                text: format!(
+                    "{}: {}\n\nFix: {}",
+                    finding.variable, finding.summary, finding.fix
+                ),
+            },
+            locations: finding
+                .locations
+                .iter()
+                .map(|location| SarifLocation {
+                    physical_location: SarifPhysicalLocation {
+                        artifact_location: SarifArtifactLocation {
+                            uri: sarif_uri(&audit.root_display, &location.path),
+                        },
+                        region: location.line.map(|line| SarifRegion {
+                            start_line: line.max(1),
+                        }),
+                    },
+                })
+                .collect(),
+        })
+        .collect();
+
+    let report = SarifLog {
+        schema: SARIF_SCHEMA,
+        version: "2.1.0",
+        runs: vec![SarifRun {
+            tool: SarifTool {
+                driver: SarifDriver {
+                    name: "EnvAudit",
+                    information_uri: "https://github.com/hix-pro/env-audit",
+                    version: env!("CARGO_PKG_VERSION"),
+                    rules,
+                },
+            },
+            results,
+        }],
+    };
+
+    let mut rendered = serde_json::to_string_pretty(&report)?;
+    rendered.push('\n');
+    Ok(rendered)
+}
+
 /// Stable JSON output. See the README for the documented schema.
 pub fn render_json(audit: &Audit) -> Result<String> {
     let report = JsonReport {
@@ -443,6 +659,79 @@ mod tests {
         assert!(output.contains("## Error (1)"));
         assert!(output.contains("`API_KEY` — secret"));
         assert!(output.contains("`src/app.ts:3`"));
+    }
+
+    #[test]
+    fn sarif_is_valid_and_points_at_locations() {
+        let output = render_sarif(&sample_audit()).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+        assert_eq!(value["version"], "2.1.0");
+        assert_eq!(value["runs"][0]["tool"]["driver"]["name"], "EnvAudit");
+        assert_eq!(
+            value["runs"][0]["tool"]["driver"]["rules"]
+                .as_array()
+                .unwrap()
+                .len(),
+            5
+        );
+
+        let results = value["runs"][0]["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0]["ruleId"], "envaudit/secret");
+        assert_eq!(results[0]["level"], "error");
+        assert_eq!(
+            results[0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"],
+            ".env"
+        );
+        assert_eq!(
+            results[0]["locations"][0]["physicalLocation"]["region"]["startLine"],
+            2
+        );
+        assert!(
+            results[0]["message"]["text"]
+                .as_str()
+                .unwrap()
+                .contains("Fix: Remove it.")
+        );
+        assert_eq!(results[1]["ruleId"], "envaudit/missing");
+        assert_eq!(results[1]["level"], "error");
+    }
+
+    #[test]
+    fn sarif_prefixes_the_scanned_subdirectory() {
+        let mut audit = sample_audit();
+        audit.root_display = "services/api".to_owned();
+        audit.findings[1].locations[0].path = "src\\app.ts".to_owned();
+
+        let output = render_sarif(&audit).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+        assert_eq!(
+            value["runs"][0]["results"][1]["locations"][0]["physicalLocation"]["artifactLocation"]
+                ["uri"],
+            "services/api/src/app.ts"
+        );
+    }
+
+    #[test]
+    fn sarif_is_still_a_valid_document_without_findings() {
+        let audit = Audit {
+            root_display: ".".to_owned(),
+            files_scanned: 1,
+            findings: Vec::new(),
+        };
+        let output = render_sarif(&audit).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+        assert!(value["runs"][0]["results"].as_array().unwrap().is_empty());
+        assert_eq!(
+            value["runs"][0]["tool"]["driver"]["rules"]
+                .as_array()
+                .unwrap()
+                .len(),
+            5
+        );
     }
 
     #[test]

@@ -40,7 +40,7 @@ The repository includes [`examples/fixture-project`](examples/fixture-project), 
 ## Usage
 
 ```text
-envaudit scan [PATH] [--json | --markdown] [--fail-on any|missing|secret]
+envaudit scan [PATH] [--json | --markdown | --sarif] [--fail-on any|missing|secret]
 ```
 
 `PATH` defaults to `.`. The default mode is a report: findings are printed, but the exit code stays `0` unless a `--fail-on` threshold is supplied.
@@ -87,7 +87,38 @@ Result: report only (use --fail-on any|missing|secret to gate CI)
 
 The matching expected outputs are committed as [`examples/expected-output.txt`](examples/expected-output.txt) and [`examples/expected-output.json`](examples/expected-output.json).
 
-Text output is colorized only when stdout is a terminal. Set `NO_COLOR` (any value) or `TERM=dumb` to disable color. JSON and Markdown output never contain ANSI escapes.
+Text output is colorized only when stdout is a terminal. Set `NO_COLOR` (any value) or `TERM=dumb` to disable color. JSON, Markdown, and SARIF output never contain ANSI escapes.
+
+### SARIF and code scanning
+
+`--sarif` emits a [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html) document for GitHub code scanning and other SARIF consumers:
+
+```bash
+envaudit scan . --sarif > envaudit.sarif
+```
+
+Rules are stable (`envaudit/missing`, `envaudit/unused`, `envaudit/undocumented`, `envaudit/secret`, `envaudit/duplicate`). Severity maps to SARIF levels: critical/error → `error`, warning → `warning`, info → `note`. Each result points at the finding's file and line, relative to the repository root. When the scan target is a subdirectory, that prefix is included so annotations still resolve.
+
+Upload it in a workflow with `security-events: write`:
+
+```yaml
+permissions:
+  contents: read
+  security-events: write
+
+steps:
+  - uses: actions/checkout@v4
+  - uses: dtolnay/rust-toolchain@stable
+  - run: cargo install --git https://github.com/hix-pro/env-audit --locked
+  - run: envaudit scan . --sarif > envaudit.sarif
+  - uses: github/codeql-action/upload-sarif@v3
+    if: always()
+    with:
+      sarif_file: envaudit.sarif
+      category: envaudit
+```
+
+The composite action below does this automatically when `sarif: true`.
 
 ## Findings
 
@@ -206,7 +237,22 @@ The repository ships a composite action that installs EnvAudit and runs it again
     fail-on: any
 ```
 
-Inputs: `path` (default `.`), `fail-on` (`any`, `missing`, `secret`, or empty for report-only), and `args` for extra CLI flags such as `--markdown` or `--json`. The first run compiles the tool from source, which takes roughly a minute; pin a tag so upgrades are explicit. The repository's own pipeline runs the action against `src` in its Dogfood workflow.
+Inputs: `path` (default `.`), `fail-on` (`any`, `missing`, `secret`, or empty for report-only), `args` for extra CLI flags, `sarif` (default `true`), and `category` (default `envaudit`). With `sarif: true`, the action writes a SARIF report, uploads it for code scanning, and preserves the scan's exit code. The caller needs `security-events: write` for the upload; if the permission is missing, the upload is skipped and the scan result still stands.
+
+```yaml
+permissions:
+  contents: read
+  security-events: write
+
+steps:
+  - uses: actions/checkout@v4
+  - uses: hix-pro/env-audit@v0.3.1
+    with:
+      path: .
+      fail-on: any
+```
+
+The first run compiles the tool from source, which takes roughly a minute; pin a tag so upgrades are explicit. The repository's own pipeline runs the action against `src` in its Dogfood workflow.
 
 ## CI
 

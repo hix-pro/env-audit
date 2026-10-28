@@ -21,6 +21,16 @@ inputs:
     description: Extra arguments passed through to `envaudit scan` (e.g. `--markdown`).
     required: false
     default: ''
+  sarif:
+    description: >-
+      Write and upload a SARIF report for GitHub code scanning. Requires
+      `security-events: write` in the caller workflow.
+    required: false
+    default: 'true'
+  category:
+    description: Category used to separate SARIF results from multiple runs.
+    required: false
+    default: envaudit
 
 runs:
   using: composite
@@ -100,16 +110,46 @@ runs:
       run: cargo install --locked --path "$GITHUB_ACTION_PATH"
 
     - name: Run EnvAudit
+      id: scan
       shell: bash
+      continue-on-error: true
       env:
         SCAN_PATH: ${{ inputs.path }}
         FAIL_ON: ${{ inputs.fail-on }}
         EXTRA_ARGS: ${{ inputs.args }}
+        SARIF_ENABLED: ${{ inputs.sarif }}
+        SARIF_FILE: ${{ runner.temp }}/envaudit.sarif
       run: |
         args=()
         if [[ -n "$FAIL_ON" ]]; then
           args+=(--fail-on "$FAIL_ON")
         fi
-        # EXTRA_ARGS is deliberately word-split so callers can pass several flags.
-        # shellcheck disable=SC2086
-        exec envaudit scan "$SCAN_PATH" "${args[@]}" $EXTRA_ARGS
+        set +e
+        if [[ "$SARIF_ENABLED" == "true" ]]; then
+          # EXTRA_ARGS is deliberately word-split so callers can pass several flags.
+          # shellcheck disable=SC2086
+          envaudit scan "$SCAN_PATH" "${args[@]}" --sarif $EXTRA_ARGS > "$SARIF_FILE"
+        else
+          # shellcheck disable=SC2086
+          envaudit scan "$SCAN_PATH" "${args[@]}" $EXTRA_ARGS
+        fi
+        code=$?
+        set -e
+        echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+        exit "$code"
+
+    - name: Upload SARIF
+      if: ${{ always() && inputs.sarif == 'true' }}
+      continue-on-error: true
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ runner.temp }}/envaudit.sarif
+        category: ${{ inputs.category }}
+        wait-for-processing: false
+
+    - name: Preserve scan result
+      if: ${{ steps.scan.outputs.exit_code != '0' }}
+      shell: bash
+      env:
+        EXIT_CODE: ${{ steps.scan.outputs.exit_code }}
+      run: exit "$EXIT_CODE"

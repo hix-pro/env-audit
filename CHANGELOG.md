@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `envaudit scan --sarif` emits a SARIF 2.1.0 report for GitHub code scanning and other SARIF consumers. Results carry stable rule IDs, severity levels, and file/line locations relative to the repository root.
+- The composite Action writes and uploads SARIF by default (`sarif: true`), with a `category` input for separating runs. The caller needs `security-events: write`; the upload never changes the scan's exit code.
+
 ## [0.3.1] - 2026-10-28
 
 ### Fixed

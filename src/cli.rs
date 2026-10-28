@@ -46,6 +46,10 @@ struct ScanArgs {
     #[arg(long)]
     markdown: bool,
 
+    /// Emit a SARIF 2.1.0 report for GitHub code scanning.
+    #[arg(long, conflicts_with_all = ["json", "markdown"])]
+    sarif: bool,
+
     /// Exit with code 2 when matching findings are present.
     #[arg(long, value_enum)]
     fail_on: Option<FailOn>,
@@ -105,6 +109,8 @@ pub fn run() -> Result<u8> {
         report::render_json(&audit)?
     } else if args.markdown {
         report::render_markdown(&audit)
+    } else if args.sarif {
+        report::render_sarif(&audit)?
     } else {
         report::render_text(
             &audit,
@@ -202,6 +208,9 @@ mod tests {
     fn clap_rejects_conflicting_output_flags() {
         let error = Cli::try_parse_from(["envaudit", "scan", "--json", "--markdown"]).unwrap_err();
         assert_eq!(error.kind(), ErrorKind::ArgumentConflict);
+
+        let sarif = Cli::try_parse_from(["envaudit", "scan", "--sarif", "--json"]).unwrap_err();
+        assert_eq!(sarif.kind(), ErrorKind::ArgumentConflict);
     }
 
     #[test]
