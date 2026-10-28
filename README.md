@@ -231,7 +231,7 @@ Schema notes:
 The repository ships a composite action that installs EnvAudit and runs it against your workspace — no Rust setup in your workflow:
 
 ```yaml
-- uses: hix-pro/env-audit@v0.3.1
+- uses: hix-pro/env-audit@main
   with:
     path: .
     fail-on: any
@@ -246,13 +246,13 @@ permissions:
 
 steps:
   - uses: actions/checkout@v4
-  - uses: hix-pro/env-audit@v0.3.1
+  - uses: hix-pro/env-audit@main
     with:
       path: .
       fail-on: any
 ```
 
-The first run compiles the tool from source, which takes roughly a minute; pin a tag so upgrades are explicit. The repository's own pipeline runs the action against `src` in its Dogfood workflow.
+The SARIF support in this section is on `main` until the next tagged release; pin that tag when it is published. The first run compiles the tool from source, which takes roughly a minute. The repository's own pipeline runs the action against `src` in its Dogfood workflow.
 
 ## CI
 
