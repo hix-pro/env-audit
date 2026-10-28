@@ -286,6 +286,8 @@ $ ../../target/debug/envaudit scan . --json > ../expected-output.json
 
 _Part of the **[hix tools](https://github.com/hix-pro#readme)** suite — local-first, no backend, CI-ready._
 
+**Deep dive:** [Catching env var drift before it breaks prod](https://hix-pro.github.io/blog/posts/01-env-audit-env-var-drift.html)
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
