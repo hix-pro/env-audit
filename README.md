@@ -111,7 +111,7 @@ steps:
   - uses: dtolnay/rust-toolchain@stable
   - run: cargo install --git https://github.com/hix-pro/env-audit --locked
   - run: envaudit scan . --sarif > envaudit.sarif
-  - uses: github/codeql-action/upload-sarif@v3
+  - uses: github/codeql-action/upload-sarif@v4
     if: always()
     with:
       sarif_file: envaudit.sarif
