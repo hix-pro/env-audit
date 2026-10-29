@@ -50,6 +50,7 @@ fn help_and_version_exit_zero() {
     assert!(text.contains("EnvAudit is a local-first CLI"));
     assert!(text.contains("Exit codes:"));
     assert!(text.contains("--fail-on"));
+    assert!(text.contains("--fix"));
 
     let version = run(temp.path(), &["--version"]);
     assert_eq!(version.status.code(), Some(0));
@@ -315,4 +316,84 @@ fn fixture_expected_outputs_are_current() {
     assert_eq!(json.status.code(), Some(0));
     let expected_json = fs::read_to_string(root.join("examples/expected-output.json")).unwrap();
     assert_eq!(stdout(&json), expected_json);
+}
+
+#[test]
+fn fix_documents_missing_and_undocumented_variables() {
+    let temp = repo();
+    write(
+        &temp.path().join("src/app.ts"),
+        "const region = process.env.DEPLOY_REGION;\nconst existing = process.env.EXISTING;\n",
+    );
+    write(
+        &temp.path().join(".env"),
+        "EXISTING=one\nUNDOCUMENTED=two\n",
+    );
+    write(&temp.path().join(".env.example"), "EXISTING=one\n");
+
+    let output = run(temp.path(), &["scan", ".", "--fix", "--fail-on", "missing"]);
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let errors = stderr(&output);
+    assert!(
+        errors.contains("updated .env.example (+2 variables)"),
+        "{errors}"
+    );
+    assert!(errors.contains("  + DEPLOY_REGION"), "{errors}");
+    assert!(errors.contains("  + UNDOCUMENTED"), "{errors}");
+
+    let example = fs::read_to_string(temp.path().join(".env.example")).unwrap();
+    assert!(example.contains("DEPLOY_REGION="));
+    assert!(example.contains("UNDOCUMENTED="));
+    assert_eq!(example.matches("EXISTING=").count(), 1);
+    assert!(example.contains("# Added by EnvAudit"));
+}
+
+#[test]
+fn fix_creates_a_missing_example_file_and_is_idempotent() {
+    let temp = missing_repo();
+    let first = run(temp.path(), &["scan", ".", "--fix"]);
+    assert_eq!(first.status.code(), Some(0), "{first:?}");
+    assert!(stderr(&first).contains("created .env.example (+1 variable)"));
+    let example = fs::read_to_string(temp.path().join(".env.example")).unwrap();
+    assert!(example.contains("DEPLOY_REGION="));
+
+    let second = run(temp.path(), &["scan", ".", "--fix"]);
+    assert_eq!(second.status.code(), Some(0), "{second:?}");
+    assert!(stderr(&second).contains("nothing to fix"));
+    assert_eq!(
+        fs::read_to_string(temp.path().join(".env.example")).unwrap(),
+        example
+    );
+}
+
+#[test]
+fn fix_never_touches_real_env_files_or_prints_secrets() {
+    let temp = repo();
+    let secret = "STRIPE_SECRET_KEY=64f3b9d1c7a24e6f8b0d5a2c9e1f7b3d";
+    write(&temp.path().join(".env"), &format!("{secret}\n"));
+    write(
+        &temp.path().join("src/app.ts"),
+        "const key = process.env.STRIPE_SECRET_KEY;\nconst region = process.env.DEPLOY_REGION;\n",
+    );
+
+    let output = run(temp.path(), &["scan", ".", "--fix"]);
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let combined = format!("{}{}", stdout(&output), stderr(&output));
+    assert!(!combined.contains("64f3b9d1c7a24e6f8b0d5a2c9e1f7b3d"));
+    assert_eq!(
+        fs::read_to_string(temp.path().join(".env")).unwrap(),
+        format!("{secret}\n")
+    );
+    let example = fs::read_to_string(temp.path().join(".env.example")).unwrap();
+    assert!(example.contains("STRIPE_SECRET_KEY="));
+    assert!(example.contains("DEPLOY_REGION="));
+}
+
+#[test]
+fn fix_conflicts_with_machine_readable_output() {
+    let temp = missing_repo();
+    let output = run(temp.path(), &["scan", ".", "--fix", "--json"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stderr(&output).contains("cannot be used with"));
+    assert!(!temp.path().join(".env.example").exists());
 }

@@ -7,6 +7,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use crate::analyze::{self, Audit};
 use crate::declarations;
+use crate::fix;
 use crate::model::FindingKind;
 use crate::report::{self, TextOptions};
 use crate::scan;
@@ -19,7 +20,7 @@ use crate::scan;
     long_about = "EnvAudit is a local-first CLI that finds environment variables a repository uses \
                   but never documents, documents but never uses, and secret-looking values that \
                   should not be committed.",
-    after_help = "Examples:\n  envaudit scan\n  envaudit scan ./service --json\n  envaudit scan . --fail-on missing\n\nExit codes:\n  0  success or report-only run with findings\n  1  usage, I/O, or parse error\n  2  findings matched --fail-on"
+    after_help = "Examples:\n  envaudit scan\n  envaudit scan ./service --json\n  envaudit scan . --fail-on missing\n  envaudit scan . --fix\n\nExit codes:\n  0  success or report-only run with findings\n  1  usage, I/O, or parse error\n  2  findings matched --fail-on"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -53,6 +54,10 @@ struct ScanArgs {
     /// Exit with code 2 when matching findings are present.
     #[arg(long, value_enum)]
     fail_on: Option<FailOn>,
+
+    /// Add missing and undocumented variables to the primary example env file.
+    #[arg(long, conflicts_with_all = ["json", "markdown", "sarif"])]
+    fix: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -98,9 +103,35 @@ pub fn run() -> Result<u8> {
     };
 
     let Command::Scan(args) = cli.command;
-    let collected = scan::collect(&args.path)?;
-    let declarations = declarations::collect(&collected)?;
-    let audit = analyze::analyze(&collected, &declarations);
+    let mut collected = scan::collect(&args.path)?;
+    let mut declarations = declarations::collect(&collected)?;
+    let mut audit = analyze::analyze(&collected, &declarations);
+
+    if args.fix {
+        match fix::apply(&collected.root, &declarations, &audit)? {
+            Some(outcome) => {
+                let action = if outcome.created {
+                    "created"
+                } else {
+                    "updated"
+                };
+                eprintln!(
+                    "{action} {} (+{} variable{})",
+                    outcome.path,
+                    outcome.added.len(),
+                    if outcome.added.len() == 1 { "" } else { "s" }
+                );
+                for name in &outcome.added {
+                    eprintln!("  + {name}");
+                }
+                collected = scan::collect(&args.path)?;
+                declarations = declarations::collect(&collected)?;
+                audit = analyze::analyze(&collected, &declarations);
+            }
+            None => eprintln!("nothing to fix"),
+        }
+    }
+
     let failing = args
         .fail_on
         .is_some_and(|threshold| threshold_met(&audit, threshold));

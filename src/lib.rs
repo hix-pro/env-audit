@@ -2,6 +2,7 @@ pub mod analyze;
 pub mod cli;
 pub mod declarations;
 pub mod dotenv;
+pub mod fix;
 pub mod gitignore;
 pub mod model;
 pub mod patterns;

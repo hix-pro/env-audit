@@ -8,7 +8,7 @@
 
 EnvAudit is a local-first Rust CLI that finds environment variables a repository uses but never documents, documents but never uses, and secrets that should not be committed.
 
-It scans JavaScript/TypeScript, Rust, Go, shell, Docker Compose, and GitHub Actions files, then compares what it finds against `.env` files and example templates. It has no network access, no configuration file, and no auto-fix.
+It scans JavaScript/TypeScript, Rust, Go, shell, Docker Compose, and GitHub Actions files, then compares what it finds against `.env` files and example templates. It has no network access and no configuration file. An opt-in `--fix` can add missing variable names to the example env file; it never edits real env files or writes values.
 
 ## Install
 
@@ -40,7 +40,7 @@ The repository includes [`examples/fixture-project`](examples/fixture-project), 
 ## Usage
 
 ```text
-envaudit scan [PATH] [--json | --markdown | --sarif] [--fail-on any|missing|secret]
+envaudit scan [PATH] [--json | --markdown | --sarif] [--fail-on any|missing|secret] [--fix]
 ```
 
 `PATH` defaults to `.`. The default mode is a report: findings are printed, but the exit code stays `0` unless a `--fail-on` threshold is supplied.
@@ -48,7 +48,7 @@ envaudit scan [PATH] [--json | --markdown | --sarif] [--fail-on any|missing|secr
 ```console
 $ cd examples/fixture-project
 $ envaudit scan .
-EnvAudit · 0.3.1
+EnvAudit · 0.4.0
 Scanned 7 files under .
 
 critical (1)
@@ -142,6 +142,29 @@ Findings are sorted by severity (`critical`, `error`, `warning`, `info`), then v
 
 `--fail-on any` matches every finding except informational `duplicate` findings. `--fail-on missing` matches only `missing`; `--fail-on secret` matches only `secret` (whether the secret file is gitignored or not).
 
+### Fixing documentation gaps
+
+`--fix` appends variables reported as `missing` or `undocumented` to the primary example env file (`.env.example` when present, otherwise the first example file, or a new `.env.example`). Names are written with empty values:
+
+```console
+$ envaudit scan . --fix
+updated .env.example (+2 variables)
+  + DEPLOY_REGION
+  + LEGACY_SMTP_HOST
+
+EnvAudit · 0.4.0
+...
+```
+
+The command then re-scans and prints the remaining findings, so the report reflects the files as they are after the fix. A variable already present in the example is never duplicated. When the example file does not exist, the new file is also seeded with the names already set in real env files, so creating it does not immediately produce a fresh round of `undocumented` findings.
+
+`--fix` is deliberately narrow:
+
+- It only writes variable names and empty values to one example env file. It never changes `.env` or any other real env file, never removes entries, and never copies a value.
+- It does not fix `unused`, `duplicate`, or `secret` findings. Removing an entry or rotating a credential needs a human decision.
+- It conflicts with `--json`, `--markdown`, and `--sarif`; run the report formats after reviewing the edit.
+- The fix summary is printed to stderr, and the final report and exit code describe the post-fix state. `--fail-on` can be combined with `--fix` to verify the gap was closed.
+
 ## What is detected
 
 | Source | Patterns |
@@ -176,7 +199,7 @@ Only the source extensions listed above are parsed as code. A shell script witho
   "schema_version": 1,
   "tool": {
     "name": "envaudit",
-    "version": "0.3.1"
+    "version": "0.4.0"
   },
   "root": ".",
   "files_scanned": 7,
@@ -284,9 +307,10 @@ Pin `--rev <commit>` on the `cargo install` command if you want reproducible ins
 2. `patterns` applies language-specific regular expressions. `yaml` contains a targeted, indentation-aware parser for Compose environment sections and GitHub `env:` maps; it also collects `${NAME}` interpolations.
 3. `dotenv` parses the dotenv subset described below, including comments, `export`, quoted values, and inline comments.
 4. `declarations` merges dotenv, Compose, workflow, and referenced `env_file` declarations. `analyze` compares usage against examples and real configuration, applies secret heuristics, and checks `.gitignore`.
-5. `report` renders terminal, JSON, or Markdown output. Findings never carry raw dotenv values into a report.
+5. `fix`, when requested, appends missing and undocumented names to the primary example env file and then re-runs the scan.
+6. `report` renders terminal, JSON, Markdown, or SARIF output. Findings never carry raw dotenv values into a report.
 
-The implementation lives in `src/` with one module per stage (`scan`, `patterns`, `dotenv`, `yaml`, `declarations`, `analyze`, `report`), plus `cli` and `main`.
+The implementation lives in `src/` with one module per stage (`scan`, `patterns`, `dotenv`, `yaml`, `declarations`, `analyze`, `fix`, `report`), plus `cli` and `main`.
 
 ## Limitations
 
@@ -297,7 +321,7 @@ The implementation lives in `src/` with one module per stage (`scan`, `patterns`
 - The dotenv parser requires `KEY=VALUE` lines, supports single-line quoted values, and only understands basic escape sequences. Malformed lines cause exit code `1`.
 - Only files up to 1 MiB are inspected, symlinks are skipped, and only the supported extensions and file names are parsed.
 - Example files anywhere under the scan root are pooled as one documentation baseline. In a monorepo with independent services, scan each service directory separately to keep examples and duplicate declarations scoped correctly.
-- There is no auto-fix, environment expansion, network lookup, or secret rotation.
+- `--fix` only adds variable names to one example env file. It does not choose values, remove unused entries, resolve duplicates, rotate secrets, expand environment variables, or perform network lookups.
 
 ## Development
 
