@@ -8,7 +8,7 @@
 
 EnvAudit is a local-first Rust CLI that finds environment variables a repository uses but never documents, documents but never uses, and secrets that should not be committed.
 
-It scans JavaScript, TypeScript, TSX, Python, Rust, Go, shell, Docker Compose, and GitHub Actions files, then compares what it finds against `.env` files and example templates. JavaScript and Python are parsed with tree-sitter, so usages in comments, strings, and dynamic keys are ignored. It has no network access and no configuration file. An opt-in `--fix` can add missing variable names to the example env file; it never edits real env files or writes values.
+It scans JavaScript, TypeScript, TSX, Python, Rust, Go, shell, Docker Compose, and GitHub Actions files, then compares what it finds against `.env` files and example templates. JavaScript/TypeScript and Python are parsed with tree-sitter, so usages in comments, strings, and dynamic keys are ignored. It has no network access and no configuration file. An opt-in `--fix` can add missing variable names to the example env file; it never edits real env files or writes values.
 
 ## Install
 
