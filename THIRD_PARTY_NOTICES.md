@@ -11,6 +11,10 @@ terms published by its authors.
 | `regex` | MIT OR Apache-2.0 | https://github.com/rust-lang/regex |
 | `serde` | MIT OR Apache-2.0 | https://github.com/serde-rs/serde |
 | `serde_json` | MIT OR Apache-2.0 | https://github.com/serde-rs/json |
+| `tree-sitter` | MIT | https://github.com/tree-sitter/tree-sitter |
+| `tree-sitter-javascript` | MIT | https://github.com/tree-sitter/tree-sitter-javascript |
+| `tree-sitter-python` | MIT | https://github.com/tree-sitter/tree-sitter-python |
+| `tree-sitter-typescript` | MIT | https://github.com/tree-sitter/tree-sitter-typescript |
 | `walkdir` | Unlicense OR MIT | https://github.com/BurntSushi/walkdir |
 | `tempfile` (tests) | MIT OR Apache-2.0 | https://github.com/Stebalien/tempfile |
 
