@@ -13,6 +13,9 @@ pub struct Usage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Language {
     JavaScript,
+    TypeScript,
+    Tsx,
+    Python,
     Rust,
     Go,
     Shell,
@@ -21,7 +24,10 @@ pub enum Language {
 impl Language {
     pub fn from_extension(extension: &str) -> Option<Self> {
         match extension {
-            "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" | "mts" | "cts" => Some(Self::JavaScript),
+            "js" | "jsx" | "mjs" | "cjs" => Some(Self::JavaScript),
+            "ts" | "mts" | "cts" => Some(Self::TypeScript),
+            "tsx" => Some(Self::Tsx),
+            "py" | "pyw" => Some(Self::Python),
             "rs" => Some(Self::Rust),
             "go" => Some(Self::Go),
             "sh" | "bash" | "zsh" | "ksh" | "dash" => Some(Self::Shell),
@@ -31,30 +37,16 @@ impl Language {
 
     pub fn name(self) -> &'static str {
         match self {
-            Self::JavaScript => "JavaScript/TypeScript",
+            Self::JavaScript => "JavaScript",
+            Self::TypeScript => "TypeScript",
+            Self::Tsx => "TSX",
+            Self::Python => "Python",
             Self::Rust => "Rust",
             Self::Go => "Go",
             Self::Shell => "shell",
         }
     }
 }
-
-static JS_DOT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b(?:process|import\.meta|Bun)\.env(?:\?)?\.([A-Za-z_][A-Za-z0-9_]*)")
-        .expect("valid JavaScript dot-access regex")
-});
-
-static JS_BRACKET: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r#"\b(?:process|import\.meta|Bun)\.env\s*\[\s*(?:"([A-Za-z_][A-Za-z0-9_]*)"|'([A-Za-z_][A-Za-z0-9_]*)')\s*\]"#,
-    )
-    .expect("valid JavaScript bracket-access regex")
-});
-
-static JS_DENO: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"\bDeno\.env\.get\(\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\)"#)
-        .expect("valid Deno regex")
-});
 
 static RUST: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"\b(?:std::)?env::var(?:_os)?\s*\(\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*\)"#)
@@ -77,16 +69,21 @@ static YAML_INTERPOLATION: LazyLock<Regex> = LazyLock::new(|| {
 
 /// Scans one source file for environment variable usage.
 pub fn scan_language(language: Language, content: &str) -> Vec<Usage> {
+    match language {
+        Language::JavaScript | Language::TypeScript | Language::Tsx | Language::Python => {
+            return crate::ast::scan_language(language, content);
+        }
+        Language::Rust | Language::Go | Language::Shell => {}
+    }
+
     let mut hits = BTreeSet::new();
     match language {
-        Language::JavaScript => {
-            collect(&JS_DOT, content, &[1], &mut hits);
-            collect(&JS_BRACKET, content, &[1, 2], &mut hits);
-            collect(&JS_DENO, content, &[1], &mut hits);
-        }
         Language::Rust => collect(&RUST, content, &[1], &mut hits),
         Language::Go => collect(&GO, content, &[1], &mut hits),
         Language::Shell => collect(&SHELL, content, &[1, 2], &mut hits),
+        Language::JavaScript | Language::TypeScript | Language::Tsx | Language::Python => {
+            return Vec::new();
+        }
     }
     into_usage(hits)
 }
@@ -237,7 +234,10 @@ mod tests {
 
     #[test]
     fn maps_extensions_to_languages() {
-        assert_eq!(Language::from_extension("tsx"), Some(Language::JavaScript));
+        assert_eq!(Language::from_extension("js"), Some(Language::JavaScript));
+        assert_eq!(Language::from_extension("ts"), Some(Language::TypeScript));
+        assert_eq!(Language::from_extension("tsx"), Some(Language::Tsx));
+        assert_eq!(Language::from_extension("py"), Some(Language::Python));
         assert_eq!(Language::from_extension("go"), Some(Language::Go));
         assert_eq!(Language::from_extension("toml"), None);
     }

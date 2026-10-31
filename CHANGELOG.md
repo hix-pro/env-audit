@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-31
+
+### Added
+- Python support (`.py`, `.pyw`): `os.environ["NAME"]`, `os.environ.get("NAME")`, `os.environ.setdefault(...)`, `os.environ.pop(...)`, and `os.getenv("NAME")`, including `import os as ...`, `from os import environ[, getenv]`, and aliased imports.
+- JavaScript, TypeScript, TSX, and Python files are now parsed with tree-sitter instead of regular expressions. This removes false `unused` findings from matches inside comments and strings, and adds support for destructuring (`const { NAME } = process.env`), optional chaining, TypeScript `as`/`satisfies` wrappers, non-null assertions, bracket access with constant strings, template substitutions, and Deno/Bun access forms.
+
+### Changed
+- Rust, Go, and shell files keep the targeted regex scanner, where the access forms are simple and a parser would add weight without improving accuracy.
+- Building from source now requires a C compiler for the tree-sitter grammars. Prebuilt release binaries are unaffected.
+
+### Fixed
+- Usages inside JavaScript/TypeScript and Python comments, string literals, and dynamic keys such as `process.env[name]` or `os.environ[key]` are no longer counted as usage, so example variables read only in those places are reported as `unused` instead of being silently treated as documented.
+
 ## [0.4.0] - 2026-10-29
 
 ### Added

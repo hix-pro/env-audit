@@ -8,11 +8,11 @@
 
 EnvAudit is a local-first Rust CLI that finds environment variables a repository uses but never documents, documents but never uses, and secrets that should not be committed.
 
-It scans JavaScript/TypeScript, Rust, Go, shell, Docker Compose, and GitHub Actions files, then compares what it finds against `.env` files and example templates. It has no network access and no configuration file. An opt-in `--fix` can add missing variable names to the example env file; it never edits real env files or writes values.
+It scans JavaScript, TypeScript, TSX, Python, Rust, Go, shell, Docker Compose, and GitHub Actions files, then compares what it finds against `.env` files and example templates. JavaScript and Python are parsed with tree-sitter, so usages in comments, strings, and dynamic keys are ignored. It has no network access and no configuration file. An opt-in `--fix` can add missing variable names to the example env file; it never edits real env files or writes values.
 
 ## Install
 
-EnvAudit requires Rust 1.85 or newer (Rust 2024 edition).
+EnvAudit requires Rust 1.85 or newer (Rust 2024 edition). Building from source also needs a C compiler for the tree-sitter grammars; the prebuilt binaries below do not.
 
 ```console
 $ git clone https://github.com/hix-pro/env-audit.git
@@ -48,7 +48,7 @@ envaudit scan [PATH] [--json | --markdown | --sarif] [--fail-on any|missing|secr
 ```console
 $ cd examples/fixture-project
 $ envaudit scan .
-EnvAudit · 0.4.0
+EnvAudit · 0.5.0
 Scanned 7 files under .
 
 critical (1)
@@ -152,7 +152,7 @@ updated .env.example (+2 variables)
   + DEPLOY_REGION
   + LEGACY_SMTP_HOST
 
-EnvAudit · 0.4.0
+EnvAudit · 0.5.0
 ...
 ```
 
@@ -169,7 +169,8 @@ The command then re-scans and prints the remaining findings, so the report refle
 
 | Source | Patterns |
 | --- | --- |
-| JavaScript / TypeScript (`.js`, `.jsx`, `.ts`, `.tsx`, `.mjs`, `.cjs`, `.mts`, `.cts`) | `process.env.NAME`, `process.env["NAME"]`, `process.env['NAME']`, `import.meta.env.NAME`, `Bun.env.NAME`, `Deno.env.get("NAME")` |
+| JavaScript / TypeScript (`.js`, `.jsx`, `.ts`, `.tsx`, `.mjs`, `.cjs`, `.mts`, `.cts`) | `process.env.NAME`, `process.env["NAME"]`, `process.env['NAME']`, optional chaining, `import.meta.env.NAME`, `Bun.env.NAME`, `Deno.env.get("NAME")`, constant template strings, TypeScript `as`/`satisfies`/non-null wrappers, and destructuring such as `const { NAME, OTHER: alias, THIRD = "x" } = process.env` |
+| Python (`.py`, `.pyw`) | `os.environ["NAME"]`, `os.environ.get("NAME")`, `os.environ.setdefault("NAME", ...)`, `os.environ.pop("NAME")`, `os.getenv("NAME")`, plus `import os as ...`, `from os import environ, getenv`, and aliased imports |
 | Rust (`.rs`) | `env::var("NAME")`, `std::env::var("NAME")`, plus the `_os` variants |
 | Go (`.go`) | `os.Getenv("NAME")`, `os.LookupEnv("NAME")` |
 | Shell (`.sh`, `.bash`, `.zsh`, `.ksh`, `.dash`) | `$NAME`, `${NAME}`, and `${NAME:-default}`-style operators (`:-`, `-`, `:=`, `=`, `:+`, `+`, `:?`, `?`) |
@@ -199,7 +200,7 @@ Only the source extensions listed above are parsed as code. A shell script witho
   "schema_version": 1,
   "tool": {
     "name": "envaudit",
-    "version": "0.4.0"
+    "version": "0.5.0"
   },
   "root": ".",
   "files_scanned": 7,
@@ -254,7 +255,7 @@ Schema notes:
 The repository ships a composite action that installs EnvAudit and runs it against your workspace — no Rust setup in your workflow:
 
 ```yaml
-- uses: hix-pro/env-audit@v0.4.0
+- uses: hix-pro/env-audit@v0.5.0
   with:
     path: .
     fail-on: any
@@ -269,7 +270,7 @@ permissions:
 
 steps:
   - uses: actions/checkout@v4
-  - uses: hix-pro/env-audit@v0.4.0
+  - uses: hix-pro/env-audit@v0.5.0
     with:
       path: .
       fail-on: any
@@ -304,17 +305,17 @@ Pin `--rev <commit>` on the `cargo install` command if you want reproducible ins
 ## How it works
 
 1. `scan` walks the tree with `walkdir`, applies the ignore/size/binary filters, and reads only relevant files.
-2. `patterns` applies language-specific regular expressions. `yaml` contains a targeted, indentation-aware parser for Compose environment sections and GitHub `env:` maps; it also collects `${NAME}` interpolations.
+2. `ast` parses JavaScript, TypeScript, TSX, and Python with tree-sitter and extracts static `process.env`/`import.meta.env`/`Bun.env`/`Deno.env` and `os.environ`/`os.getenv` references. `patterns` dispatches to it for those languages and keeps targeted regular expressions for Rust, Go, and shell. `yaml` contains a targeted, indentation-aware parser for Compose environment sections and GitHub `env:` maps; it also collects `${NAME}` interpolations.
 3. `dotenv` parses the dotenv subset described below, including comments, `export`, quoted values, and inline comments.
 4. `declarations` merges dotenv, Compose, workflow, and referenced `env_file` declarations. `analyze` compares usage against examples and real configuration, applies secret heuristics, and checks `.gitignore`.
 5. `fix`, when requested, appends missing and undocumented names to the primary example env file and then re-runs the scan.
 6. `report` renders terminal, JSON, Markdown, or SARIF output. Findings never carry raw dotenv values into a report.
 
-The implementation lives in `src/` with one module per stage (`scan`, `patterns`, `dotenv`, `yaml`, `declarations`, `analyze`, `fix`, `report`), plus `cli` and `main`.
+The implementation lives in `src/` with one module per stage (`scan`, `ast`, `patterns`, `dotenv`, `yaml`, `declarations`, `analyze`, `fix`, `report`), plus `cli` and `main`.
 
 ## Limitations
 
-- Detection is regex-based, not AST-based. Usages in comments or strings can produce false positives, and dynamic access such as `process.env[name]` or destructuring like `const { NAME } = process.env` is not detected. Shell local variables and standard variables can also be reported as missing.
+- JavaScript, TypeScript, TSX, and Python use tree-sitter ASTs; Rust, Go, and shell still use targeted regular expressions, so usages in comments or strings in those languages can produce false positives. AST scanning only sees statically named accesses: dynamic keys such as `process.env[name]`, `os.environ[key]`, and template keys like ``process.env[`NAME_${env}`]`` are ignored. Shell local variables and standard variables can also be reported as missing.
 - The YAML parser is deliberately targeted. It does not implement the full YAML specification; anchors, aliases, advanced flow styles, and interpolated `env_file` paths are ignored or unsupported. Only Compose and GitHub Actions YAML are parsed.
 - Secret detection is heuristic. It checks real dotenv files only, using key-name and value-shape rules; it is not an entropy scanner or a replacement for provider-specific secret scanning. Placeholder values can be misclassified, and some real secrets will be missed.
 - `.gitignore` handling supports the common pattern subset (globs, negation, directory patterns, anchoring, and `**`), but it is not a complete Git implementation. EnvAudit does not inspect the Git index, `.git/info/exclude`, or global excludes, so `gitignored` is only a heuristic.

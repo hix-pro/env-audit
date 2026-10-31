@@ -319,6 +319,101 @@ fn fixture_expected_outputs_are_current() {
 }
 
 #[test]
+fn python_usage_is_not_reported_as_unused() {
+    let temp = repo();
+    write(
+        &temp.path().join(".env.example"),
+        "DATABASE_URL=\nREDIS_URL=\nUNUSED_FLAG=\n",
+    );
+    write(
+        &temp.path().join("app.py"),
+        concat!(
+            "import os\n",
+            "database = os.environ[\"DATABASE_URL\"]\n",
+            "redis = os.getenv('REDIS_URL')\n",
+        ),
+    );
+
+    let output = run(temp.path(), &["scan", ".", "--json"]);
+    assert_eq!(output.status.code(), Some(0));
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["summary"]["kinds"]["missing"], 0);
+    assert_eq!(value["summary"]["kinds"]["unused"], 1);
+    assert_eq!(value["findings"][0]["variable"], "UNUSED_FLAG");
+}
+
+#[test]
+fn javascript_destructuring_is_not_reported_as_unused() {
+    let temp = repo();
+    write(
+        &temp.path().join(".env.example"),
+        "API_URL=\nAPI_KEY=\nUNUSED_FLAG=\n",
+    );
+    write(
+        &temp.path().join("src/config.ts"),
+        "const { API_URL, API_KEY: key } = process.env;\n",
+    );
+
+    let output = run(temp.path(), &["scan", ".", "--json"]);
+    assert_eq!(output.status.code(), Some(0));
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["summary"]["kinds"]["missing"], 0);
+    assert_eq!(value["summary"]["kinds"]["unused"], 1);
+    assert_eq!(value["findings"][0]["variable"], "UNUSED_FLAG");
+}
+
+#[test]
+fn comments_and_strings_do_not_count_as_usage() {
+    let temp = repo();
+    write(
+        &temp.path().join(".env.example"),
+        "COMMENTED=\nQUOTED=\nREAL=\n",
+    );
+    write(
+        &temp.path().join("src/app.ts"),
+        concat!(
+            "// process.env.COMMENTED\n",
+            "const quoted = \"process.env.QUOTED\";\n",
+            "const real = process.env.REAL;\n",
+        ),
+    );
+
+    let output = run(temp.path(), &["scan", ".", "--json"]);
+    assert_eq!(output.status.code(), Some(0));
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["summary"]["kinds"]["unused"], 2);
+    let variables: Vec<&str> = value["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|finding| finding["variable"].as_str().unwrap())
+        .collect();
+    assert_eq!(variables, vec!["COMMENTED", "QUOTED"]);
+}
+
+#[test]
+fn fix_documents_python_usage_without_inventing_values() {
+    let temp = repo();
+    write(&temp.path().join(".env.example"), "EXISTING=\n");
+    write(
+        &temp.path().join("app.py"),
+        "import os\nvalue = os.environ[\"NEW_SETTING\"]\ndynamic = os.environ[key]\n",
+    );
+
+    let output = run(temp.path(), &["scan", ".", "--fix", "--fail-on", "missing"]);
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let errors = stderr(&output);
+    assert!(
+        errors.contains("updated .env.example (+1 variable)"),
+        "{errors}"
+    );
+    assert!(errors.contains("  + NEW_SETTING"), "{errors}");
+    let example = fs::read_to_string(temp.path().join(".env.example")).unwrap();
+    assert!(example.contains("NEW_SETTING=\n"));
+    assert!(!example.contains("key="));
+}
+
+#[test]
 fn fix_documents_missing_and_undocumented_variables() {
     let temp = repo();
     write(
