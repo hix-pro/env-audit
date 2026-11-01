@@ -13,7 +13,7 @@ jobs:
     name: env-audit scans its own source
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Uses the action.yml in this repository. `src` is scanned (not `examples/`,
       # which deliberately contains fixture findings), and only secrets gate the job.
